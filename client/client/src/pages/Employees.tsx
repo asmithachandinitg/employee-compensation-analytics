@@ -24,7 +24,7 @@ import { useToast } from "../context/ToastContext";
 import PageLoader from "../components/PageLoader";
 import "./Employees.css";
 
-const API = "http://localhost:5000/api";
+import { API } from "../services/api";
 
 interface Department {
   id: number;

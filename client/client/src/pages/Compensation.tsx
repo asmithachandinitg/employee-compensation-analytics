@@ -13,7 +13,8 @@ import {
   FiSearch,
   FiX,
 } from "react-icons/fi";
-const API = "http://localhost:5000/api";
+
+import { API } from "../services/api";
 
 interface CompensationRecord {
   id: number;

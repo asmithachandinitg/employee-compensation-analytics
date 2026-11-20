@@ -12,7 +12,7 @@ import {
 } from "react-icons/fi";
 import type { IconType } from "react-icons";
 
-const API = "http://localhost:5000/api";
+import { API } from "../services/api";
 
 interface Summary {
   totalEmployees: number;
