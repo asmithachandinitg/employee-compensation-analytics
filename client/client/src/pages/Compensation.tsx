@@ -1,7 +1,18 @@
-
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLoading } from "../context/LoadingContext";
+import { useToast } from "../context/ToastContext";
+import PageLoader from "../components/PageLoader";
 import "./Compensation.css";
-import { FiEdit2, FiX } from "react-icons/fi";
+import {
+  FiBriefcase,
+  FiChevronDown,
+  FiDollarSign,
+  FiEdit2,
+  FiMapPin,
+  FiRefreshCw,
+  FiSearch,
+  FiX,
+} from "react-icons/fi";
 const API = "http://localhost:5000/api";
 
 interface CompensationRecord {
@@ -45,18 +56,24 @@ interface DropdownOption {
 function FilterDropdown({
   value,
   options,
-  placeholder,
   onChange,
+  ariaLabel,
 }: {
   value: string;
   options: DropdownOption[];
-  placeholder: string;
   onChange: (value: string) => void;
+  ariaLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
-  const selectedIndex = options.findIndex((option) => option.value === value);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const selectedIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === value)
+  );
+  const selectedOption = options[selectedIndex];
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -68,70 +85,96 @@ function FilterDropdown({
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
-  const choose = (nextValue: string) => {
-    onChange(nextValue);
+  const choose = (option: DropdownOption) => {
+    onChange(option.value);
     setOpen(false);
+    triggerRef.current?.focus();
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
-      setOpen(false);
+      if (open) {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
       return;
     }
+
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
+
       if (!open) {
         setOpen(true);
-        setActiveIndex(Math.max(0, selectedIndex));
+        setActiveIndex(selectedIndex);
         return;
       }
+
       setActiveIndex((current) =>
         event.key === "ArrowDown"
           ? (current + 1) % options.length
           : (current - 1 + options.length) % options.length
       );
+      return;
     }
-    if (event.key === "Enter") {
+
+    if (event.key === "Home" && open) {
       event.preventDefault();
-      if (!open) setOpen(true);
-      else if (options[activeIndex]) choose(options[activeIndex].value);
+      setActiveIndex(0);
+    }
+
+    if (event.key === "End" && open) {
+      event.preventDefault();
+      setActiveIndex(options.length - 1);
+    }
+
+    if (event.key === "Enter" && open) {
+      event.preventDefault();
+      choose(options[activeIndex]);
     }
   };
 
-  const selected = options.find((option) => option.value === value);
-
   return (
-    <div className="comp-filter-dropdown" ref={rootRef}>
+    <div className="comp-dropdown" ref={rootRef} onKeyDown={handleKeyDown}>
       <button
+        ref={triggerRef}
         type="button"
-        className={`comp-filter-trigger${open ? " is-open" : ""}`}
+        className={`comp-dropdown-trigger${open ? " is-open" : ""}`}
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => {
+          setActiveIndex(selectedIndex);
           setOpen((current) => !current);
-          setActiveIndex(Math.max(0, selectedIndex));
         }}
-        onKeyDown={handleKeyDown}
       >
-        <span>{selected?.label || placeholder}</span>
-        <span className="comp-filter-chevron" aria-hidden="true">⌄</span>
+        <span className="comp-dropdown-value">{selectedOption?.label}</span>
+        <span className="comp-dropdown-chevron">
+          <FiChevronDown />
+        </span>
       </button>
+
       {open && (
-        <div className="comp-filter-menu" role="listbox">
-          {options.map((option, index) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              className={`comp-filter-option${option.value === value ? " selected" : ""}${index === activeIndex ? " active" : ""}`}
-              key={option.value || "all"}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={() => choose(option.value)}
-            >
-              <span>{option.label}</span>
-              {option.value === value && <span className="comp-filter-check">✓</span>}
-            </button>
-          ))}
+        <div className="comp-dropdown-menu" role="listbox" aria-label={ariaLabel}>
+          {options.map((option, index) => {
+            const selected = option.value === value;
+            const active = index === activeIndex;
+
+            return (
+              <button
+                key={option.value || "all"}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={`comp-dropdown-option${selected ? " is-selected" : ""}${active ? " is-active" : ""}`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => choose(option)}
+              >
+                <span>{option.label}</span>
+                {selected && <span className="comp-dropdown-check">✓</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -139,6 +182,8 @@ function FilterDropdown({
 }
 
 export default function Compensation() {
+  const { apiFetch } = useLoading();
+  const { showToast } = useToast();
   const [records, setRecords] = useState<CompensationRecord[]>([]);
   const [filters, setFilters] = useState<FilterOptions>({
     departments: [],
@@ -160,7 +205,7 @@ export default function Compensation() {
     totalPages: 0,
   });
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedEmployee, setSelectedEmployee] =
     useState<CompensationRecord["employee"] | null>(null);
@@ -179,15 +224,18 @@ export default function Compensation() {
 
   const fetchFilters = useCallback(async () => {
     try {
-      const response = await fetch(`${API}/compensation/filters`);
+      const response = await apiFetch(`${API}/compensation/filters`);
       if (!response.ok) throw new Error("Unable to load filter options");
 
       const result = await response.json();
       setFilters(result.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Filter loading failed");
+      const message =
+        err instanceof Error ? err.message : "Filter loading failed";
+
+      showToast(message, "error");
     }
-  }, []);
+  }, [apiFetch, showToast]);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -204,7 +252,7 @@ export default function Compensation() {
       if (countryId) params.set("countryId", countryId);
       if (currency) params.set("currency", currency);
 
-      const response = await fetch(
+      const response = await apiFetch(
         `${API}/compensation?${params.toString()}`
       );
 
@@ -214,11 +262,15 @@ export default function Compensation() {
       setRecords(result.data);
       setPagination(result.pagination);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      const message =
+        err instanceof Error ? err.message : "Something went wrong";
+
+      setError(message);
+      showToast(message, "error");
     } finally {
       setLoading(false);
     }
-  }, [page, search, departmentId, countryId, currency]);
+  }, [page, search, departmentId, countryId, currency, apiFetch, showToast]);
 
   useEffect(() => {
     fetchFilters();
@@ -238,6 +290,7 @@ export default function Compensation() {
 
     if (!Number.isInteger(targetPage) || targetPage < 1 || targetPage > maxPage) {
       setPageInput(String(page));
+      showToast(`Enter a page number between 1 and ${maxPage}`, "error");
       return;
     }
 
@@ -259,7 +312,7 @@ export default function Compensation() {
     setFormSuccess("");
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API}/compensation/${employee.id}/history`
       );
       if (!response.ok) throw new Error("Unable to load salary history");
@@ -267,9 +320,11 @@ export default function Compensation() {
       const result = await response.json();
       setHistory(result.data.compensation);
     } catch (err) {
-      setFormError(
-        err instanceof Error ? err.message : "Unable to load history"
-      );
+      const message =
+        err instanceof Error ? err.message : "Unable to load history";
+
+      setFormError(message);
+      showToast(message, "error");
     } finally {
       setHistoryLoading(false);
     }
@@ -295,7 +350,7 @@ export default function Compensation() {
     setFormSuccess("");
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API}/compensation/${selectedEmployee.id}`,
         {
           method: "POST",
@@ -315,16 +370,31 @@ export default function Compensation() {
       }
 
       setFormSuccess("New compensation record created successfully.");
+      showToast("Salary updated successfully", "success");
       setUpdateSalary("");
       setReason("");
 
       await viewHistory(selectedEmployee);
       await fetchRecords();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Salary update failed");
+      const message =
+        err instanceof Error ? err.message : "Salary update failed";
+
+      setFormError(message);
+      showToast(message, "error");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const hasActiveFilters = Boolean(search || departmentId || countryId || currency);
+
+  const clearFilters = () => {
+    setSearch("");
+    setDepartmentId("");
+    setCountryId("");
+    setCurrency("");
+    setPage(1);
   };
 
   const closeModal = () => {
@@ -350,60 +420,70 @@ export default function Compensation() {
         </div>
       </header>
 
-      <section className="compensation-toolbar">
-        <input
-          type="search"
-          placeholder="Search employee name, ID or email..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <section className="comp-toolbar">
+        <div className="comp-search">
+          <FiSearch />
+          <input
+            type="search"
+            placeholder="Search employee name, ID or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search compensation records"
+          />
+        </div>
 
-        <FilterDropdown
-          value={departmentId}
-          placeholder="All departments"
-          onChange={setDepartmentId}
-          options={[
-            { value: "", label: "All departments" },
-            ...filters.departments.map((item) => ({
-              value: String(item.id),
-              label: item.name,
-            })),
-          ]}
-        />
+        <div className="comp-filter">
+          <FiBriefcase />
+          <FilterDropdown
+            value={departmentId}
+            onChange={setDepartmentId}
+            ariaLabel="Filter by department"
+            options={[
+              { value: "", label: "All departments" },
+              ...filters.departments.map((item) => ({
+                value: String(item.id),
+                label: item.name,
+              })),
+            ]}
+          />
+        </div>
 
-        <FilterDropdown
-          value={countryId}
-          placeholder="All countries"
-          onChange={setCountryId}
-          options={[
-            { value: "", label: "All countries" },
-            ...filters.countries.map((item) => ({
-              value: String(item.id),
-              label: item.name,
-            })),
-          ]}
-        />
+        <div className="comp-filter">
+          <FiMapPin />
+          <FilterDropdown
+            value={countryId}
+            onChange={setCountryId}
+            ariaLabel="Filter by country"
+            options={[
+              { value: "", label: "All countries" },
+              ...filters.countries.map((item) => ({
+                value: String(item.id),
+                label: item.name,
+              })),
+            ]}
+          />
+        </div>
 
-        <FilterDropdown
-          value={currency}
-          placeholder="All currencies"
-          onChange={setCurrency}
-          options={[
-            { value: "", label: "All currencies" },
-            ...filters.currencies.map((item) => ({ value: item, label: item })),
-          ]}
-        />
+        <div className="comp-filter">
+          <FiDollarSign />
+          <FilterDropdown
+            value={currency}
+            onChange={setCurrency}
+            ariaLabel="Filter by currency"
+            options={[
+              { value: "", label: "All currencies" },
+              ...filters.currencies.map((item) => ({ value: item, label: item })),
+            ]}
+          />
+        </div>
 
         <button
-          className="comp-clear-button"
-          onClick={() => {
-            setSearch("");
-            setDepartmentId("");
-            setCountryId("");
-            setCurrency("");
-            setPage(1);
-          }}
+          type="button"
+          className="comp-clear"
+          onClick={clearFilters}
+          disabled={!hasActiveFilters}
         >
+          <FiRefreshCw />
           Clear
         </button>
       </section>
@@ -411,6 +491,11 @@ export default function Compensation() {
       {error && <div className="comp-error">{error}</div>}
 
       <section className="compensation-table-container">
+        {loading ? (
+          <div className="comp-loader-area">
+            <PageLoader message="Loading compensation records..." />
+          </div>
+        ) : (
         <table className="compensation-table">
           <thead>
             <tr>
@@ -426,13 +511,7 @@ export default function Compensation() {
           </thead>
 
           <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={8} className="comp-table-message">
-                  Loading compensation records...
-                </td>
-              </tr>
-            ) : records.length === 0 ? (
+            {records.length === 0 ? (
               <tr>
                 <td colSpan={8} className="comp-table-message">
                   No compensation records found.
@@ -479,6 +558,7 @@ export default function Compensation() {
             )}
           </tbody>
         </table>
+        )}
       </section>
 
       <div className="compensation-pagination">

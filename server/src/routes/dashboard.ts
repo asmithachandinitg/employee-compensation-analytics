@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -13,36 +12,44 @@ router.get("/summary", async (_req, res) => {
       activeEmployees,
       departmentCount,
       countryCount,
-      compensationRecords,
+      payrollRows,
     ] = await Promise.all([
       prisma.employee.count(),
       prisma.employee.count({ where: { status: "ACTIVE" } }),
       prisma.department.count(),
       prisma.country.count(),
-      prisma.compensationHistory.findMany({
-        select: {
-          baseSalary: true,
-          currency: true,
-        },
-      }),
+      // Payroll counts each current employee's latest salary only
+      // (ACTIVE and ON_LEAVE), grouped by currency in the database.
+      prisma.$queryRaw<
+        { currency: string; totalPayroll: number; averageSalary: number }[]
+      >`
+        WITH latest_compensation AS (
+          SELECT DISTINCT ON (ch."employeeId")
+            ch."baseSalary",
+            ch."currency"
+          FROM "CompensationHistory" ch
+          INNER JOIN "Employee" e ON e."id" = ch."employeeId"
+          WHERE e."status" IN ('ACTIVE', 'ON_LEAVE')
+          ORDER BY
+            ch."employeeId",
+            ch."effectiveDate" DESC,
+            ch."createdAt" DESC,
+            ch."id" DESC
+        )
+        SELECT
+          "currency",
+          SUM("baseSalary")::float8 AS "totalPayroll",
+          AVG("baseSalary")::float8 AS "averageSalary"
+        FROM latest_compensation
+        GROUP BY "currency"
+        ORDER BY "currency"
+      `,
     ]);
 
-    const payrollByCurrency = Object.entries(
-      compensationRecords.reduce(
-        (acc, record) => {
-          const currency = record.currency;
-          acc[currency] =
-            (acc[currency] || 0) + Number(record.baseSalary);
-          return acc;
-        },
-        {} as Record<string, number>
-      )
-    ).map(([currency, total]) => ({
-      currency,
-      totalPayroll: total,
-      averageSalary: total / (compensationRecords.filter(
-        (record) => record.currency === currency
-      ).length || 1),
+    const payrollByCurrency = payrollRows.map((row) => ({
+      currency: row.currency,
+      totalPayroll: Number(row.totalPayroll),
+      averageSalary: Number(row.averageSalary),
     }));
 
     res.json({

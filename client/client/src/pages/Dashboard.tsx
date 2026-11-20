@@ -112,7 +112,7 @@ export default function Dashboard() {
       maximumFractionDigits: 0,
     }).format(amount);
 
-  if (loading) return <PageLoader message="Loading your dashboard..." />;
+if (loading) return <PageLoader message="Loading your dashboard..." />;
 
   if (error || !summary || !analytics) {
     return <div className="error">{error || "Dashboard data unavailable"}</div>;
@@ -136,29 +136,29 @@ export default function Dashboard() {
       </header>
 
       <section className="stats-grid">
-        <StatCard
-          title="Total Employees"
-          value={summary.totalEmployees.toLocaleString()}
-          icon={FiUsers}
-        />
+     <StatCard
+  title="Total Employees"
+  value={summary.totalEmployees.toLocaleString()}
+  icon={FiUsers}
+/>
 
-        <StatCard
-          title="Active Employees"
-          value={summary.activeEmployees.toLocaleString()}
-          icon={FiUserCheck}
-        />
+<StatCard
+  title="Active Employees"
+  value={summary.activeEmployees.toLocaleString()}
+  icon={FiUserCheck}
+/>
 
-        <StatCard
-          title="Departments"
-          value={String(summary.departmentCount)}
-          icon={FiBriefcase}
-        />
+<StatCard
+  title="Departments"
+  value={String(summary.departmentCount)}
+  icon={FiBriefcase}
+/>
 
-        <StatCard
-          title="Countries"
-          value={String(summary.countryCount)}
-          icon={FiGlobe}
-        />
+<StatCard
+  title="Countries"
+  value={String(summary.countryCount)}
+  icon={FiGlobe}
+/>
       </section>
 
       <section className="panel">
